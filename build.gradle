@@ -2,12 +2,12 @@ plugins {
     id 'java'
     id 'idea'
     id 'eclipse'
-    id 'maven'
-    id 'com.github.johnrengelman.shadow' version '5.2.0'
+    id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
 }
 
-group 'wecross.stub.sample'
-version '1.0.0-SNAPSHOT'
+group 'com.webank.wecross'
+version '1.3.0'
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -19,15 +19,42 @@ repositories {
     jcenter()
     maven { url "https://maven.aliyun.com/nexus/content/groups/public/" }
     maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
+    maven { url "https://s01.oss.sonatype.org/content/repositories/snapshots/" }
+    maven { url 'https://maven.aliyun.com/nexus/content/repositories/jcenter' }
 }
 
 dependencies {
     // stub接口定义
-    implementation 'com.webank:wecross-java-stub:1.0.0'
+    implementation ('com.webank:wecross-java-stub:1.3.0') {
+        exclude group: 'com.google.code.gson', module: 'gson'
+        exclude group: "io.netty"
+        exclude group: "org.fisco-bcos", module: "tcnative"
+    }
     // toml解析器
     implementation 'com.moandjiezana.toml:toml4j:0.7.2'
 
-    //TODO 添加其他依赖
+    implementation 'commons-io:commons-io:2.7'
+
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.9.6'
+    implementation 'org.reflections:reflections:0.9.11'
+    implementation 'org.apache.commons:commons-lang3:3.11'
+    implementation 'org.apache.commons:commons-collections4:4.4'
+    implementation 'com.fasterxml.jackson.core:jackson-annotations:2.9.6'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.9.6'
+    implementation 'com.google.guava:guava:30.1-jre'
+
+    //implementation 'com.baidu.xuper:xuper-java-sdk:0.3.0'
+    // xuper相关的依赖
+    implementation "org.yaml:snakeyaml:1.29"
+    implementation "io.perfmark:perfmark-api:0.24.0"
+    implementation "io.grpc:grpc-protobuf:1.56.1"
+    implementation "io.grpc:grpc-okhttp:1.56.1"
+    implementation "io.grpc:grpc-stub:1.56.1"
+    implementation "javax.annotation:javax.annotation-api:1.3.2"
+    implementation "org.bouncycastle:bcpkix-jdk15on:1.56"
+    implementation "com.google.code.gson:gson:2.8.8"
+    implementation "com.alibaba:fastjson:1.2.78"
+    implementation "org.apache.fluo:fluo-api:1.2.0"
 
     // Junit测试框架
     testImplementation 'junit:junit:4.12'
@@ -46,6 +73,34 @@ task cleanAll(type: Delete) {
 
 tasks.clean.dependsOn(tasks.cleanAll)
 
+sourceSets {
+
+    main {
+        resources {
+            exclude '**/*.toml'
+            exclude '**/*.xml'
+            exclude '**/*.properties'
+            exclude '**/*.yml'
+            exclude '**/*.crt'
+            exclude '**/*.key'
+            include 'WeCrossProxy.sol'
+            include 'WeCrossHub.sol'
+        }
+    }
+
+    // Add the integration test directory
+    integTest {
+        java {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+        }
+
+//        resources {
+//            srcDir file('src/integTest/resources')
+//        }
+    }
+}
+
 shadowJar {
     mergeServiceFiles()
     minimize()
@@ -54,19 +109,30 @@ shadowJar {
 // 打包操作，打包项目所有依赖生成 fat jar
 task makeJar(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar, dependsOn: shadowJar) {
 
-    destinationDir file('dist/apps')
-    archiveName project.name + "-" + project.version + '.jar'
+    destinationDir file('C:/Users/limha/Desktop/cita_jar') //TODO 打包时修改路径
+    archiveName 'xuperchain-stub-jnucross-dddd.jar'
     exclude '**/*.xml'
     exclude '**/*.toml'
     exclude '**/*.properties'
     exclude '**/*.yml'
 
-//    manifest {
-//        attributes(
-//                'Main-Class': 'wecross.stub.demo.Main',
-//                'version': project.version,
-//        )
-//    }
+    dependencies {
+        exclude(dependency('io.netty:.*'))
+        exclude(dependency('org.apache.logging.log4j:.*'))
+        exclude(dependency('org.slf4j:.*'))
+    }
+
+    from {
+        configurations.implementation.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+    manifest {
+        attributes(
+                'Main-Class': 'com.webank.wecross.stub.xuperchain.XuperChainStubFactory',
+                'version': project.version,
+        )
+    }
 
     from zipTree(shadowJar.getArchiveFile())
 }
