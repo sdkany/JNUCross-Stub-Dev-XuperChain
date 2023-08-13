@@ -1,5 +1,7 @@
 package com.webank.wecross.stub.xuperchain;
 
+import com.baidu.xuper.crypto.Base58;
+import com.baidu.xuper.crypto.Common;
 import com.baidu.xuper.crypto.xchain.hash.Hash;
 import com.baidu.xuper.crypto.xchain.sign.ECKeyPair;
 import com.baidu.xuper.crypto.xchain.sign.Ecc;
@@ -13,12 +15,18 @@ import com.webank.wecross.stub.xuperchain.utils.TransactionConstant;
 import com.webank.wecross.stub.xuperchain.utils.Utils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.ASN1StreamParser;
 import org.bouncycastle.asn1.DERSequenceGenerator;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.signers.ECDSASigner;
+import org.bouncycastle.math.ec.ECFieldElement;
+import org.bouncycastle.math.ec.ECPoint;
+import org.bouncycastle.math.ec.custom.sec.SecP256R1Point;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -199,15 +207,48 @@ public class XuperChainDriver implements Driver {
 
     @Override
     public boolean accountVerify(String identity, byte[] signBytes, byte[] message) {
-        ECDSASigner signer = new ECDSASigner();
-
-
-        //signer.init(false, new ECPublicKeyParameters(publicKey, Ecc.domain));
         byte[] hash = Hash.doubleSha256(message);
+        ByteArrayInputStream baos = new ByteArrayInputStream(signBytes);
+        ASN1StreamParser asn1StreamParser = new ASN1StreamParser(baos);
+        ASN1Sequence a1 = null;
+        try {
+            a1 = (ASN1Sequence) asn1StreamParser.readObject().toASN1Primitive();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        BigInteger r = ((ASN1Integer)a1.getObjectAt(0)).getValue();
+        BigInteger s = ((ASN1Integer)a1.getObjectAt(1)).getValue();
 
-        //signer.verifySignature(message);
-        byte[] r = Arrays.copyOfRange(signBytes, 0, 32);
-        byte[] s = Arrays.copyOfRange(signBytes, 32, 64);
+        ECPoint G = Ecc.domain.getG();
+
+        BigInteger y_2 = r.modPow(BigInteger.valueOf(3), Ecc.p).add(Ecc.b).add(r.multiply(Ecc.a)).mod(Ecc.p);
+        BigInteger y = y_2;
+        BigInteger m = Ecc.p.subtract(BigInteger.valueOf(3)).divide(BigInteger.valueOf(4));
+        BigInteger y0 = y.modPow(m.add(BigInteger.ONE), Ecc.p);
+        BigInteger y1 = y.modPow(m.add(BigInteger.ONE), Ecc.p).multiply(BigInteger.valueOf(-1)).mod(Ecc.p);
+
+        ECPoint ecPoint0_ = new ECPoint.Fp(Ecc.domain.getCurve(), new ECFieldElement.Fp(Ecc.p, r),new ECFieldElement.Fp(Ecc.p, y0), false);
+        ECPoint ecPoint1_ = new ECPoint.Fp(Ecc.domain.getCurve(), new ECFieldElement.Fp(Ecc.p, r),new ECFieldElement.Fp(Ecc.p, y1), false);
+
+        BigInteger s_ = s.modInverse(Ecc.n);
+        BigInteger hs_ = s_.multiply(Ecc.calculateE(Ecc.n, hash));
+        BigInteger rs_ = r.multiply(s_);
+        ECPoint P1 = G.multiply(hs_);
+        ECPoint pk_0 = ecPoint0_.subtract(P1).multiply(rs_.modInverse(Ecc.n));
+        ECPoint pk_1 = ecPoint1_.subtract(P1).multiply(rs_.modInverse(Ecc.n));
+
+        byte[] pubKey0 = pk_0.getEncoded(false);
+        byte[] pubKey1 = pk_1.getEncoded(false);
+
+        byte[] pkHash0 = Hash.ripeMD160(Hash.hashUsingSha256(pubKey0));
+        byte[] pkHash1 = Hash.ripeMD160(Hash.hashUsingSha256(pubKey1));
+
+        String address0 = Base58.encodeChecked(Common.nist, pkHash0);
+        String address1 = Base58.encodeChecked(Common.nist, pkHash1);
+
+        if (address0.equals(identity) || address1.equals(identity))
+            return true;
+
         return false;
     }
 
